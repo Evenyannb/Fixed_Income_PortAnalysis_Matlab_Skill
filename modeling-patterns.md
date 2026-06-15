@@ -1,5 +1,85 @@
 # Modeling Patterns Reference
 
+## 0. Curve Fitting Model Selection
+
+Nelson-Siegel (NS) is the default — but it's a choice, not the only option.
+Pick based on the user's request and how well NS actually fits.
+
+**Use NS (default) when:**
+- User doesn't specify a model
+- Goal is level/slope/curvature decomposition, scenario shocks, or
+  cross-market comparison (consistent factors across curves)
+- 4 parameters are enough to describe the curve well (RMSE reasonable,
+  lambda in a sane range, e.g. 0.5–15 yrs)
+
+**Switch to Nelson-Siegel-Svensson (NSS) when:**
+- User explicitly asks for "Svensson" or "NSS"
+- NS RMSE is poor (e.g. >10 bps) or NS lambda is degenerate (very large,
+  e.g. >40 yrs, or hugging a bound) — NSS adds a second hump and usually
+  fixes this
+- Curve has two distinct humps (common in some EM curves or stressed markets)
+
+**Switch to spline / pchip interpolation when:**
+- User asks for "smooth curve through the data", "interpolate", or just
+  wants a visual fit with no parametric structure
+- Goal is interpolation for pricing at arbitrary tenors, not factor
+  decomposition or scenario analysis
+- Very few data points where a 4-6 parameter parametric model would
+  overfit or behave erratically
+
+**General approach:** fit NS first (it's cheap). If RMSE is large or
+lambda looks degenerate, mention this to the user and offer to try NSS or
+a spline instead — don't silently force a bad NS fit, and don't assume
+NSS/spline is needed if NS already fits well.
+
+### Nelson-Siegel-Svensson (NSS)
+
+Adds a second curvature term with its own decay parameter — fixes the
+"single distant hump" degeneracy that plain NS sometimes hits.
+
+```matlab
+nss_model = @(b, m) b(1) ...
+    + b(2) .* (1 - exp(-m/b(5))) ./ (m/b(5)) ...
+    + b(3) .* ((1 - exp(-m/b(5))) ./ (m/b(5)) - exp(-m/b(5))) ...
+    + b(4) .* ((1 - exp(-m/b(6))) ./ (m/b(6)) - exp(-m/b(6)));
+
+% b = [beta0, beta1, beta2, beta3, lambda1, lambda2]
+b0   = [2.0, -1.5, 0.5, 0.5, 2.0, 5.0];
+opts = optimset('Display', 'off');
+b_fit = lsqcurvefit(nss_model, b0, maturities, yields, ...
+    [-10,-10,-10,-10, 0.1, 0.1], [10,10,10,10, 30, 30], opts);
+
+fprintf('Beta0: %.4f  Beta1: %.4f  Beta2: %.4f  Beta3: %.4f\n', ...
+    b_fit(1), b_fit(2), b_fit(3), b_fit(4));
+fprintf('Lambda1: %.4f yrs  Lambda2: %.4f yrs\n', b_fit(5), b_fit(6));
+rmse = sqrt(mean((nss_model(b_fit, maturities) - yields).^2));
+fprintf('NSS RMSE: %.2f bps\n', rmse * 100);
+```
+
+### Cubic Spline (exact interpolation)
+
+Passes exactly through every data point — good for visualization and
+pricing at intermediate tenors, but can oscillate between widely-spaced
+points and should NOT be used for extrapolation beyond the data range.
+
+```matlab
+t_fine   = linspace(min(maturities), max(maturities), 200);
+y_spline = interp1(maturities, yields, t_fine, 'spline');
+fprintf('Spline: exact fit through %d points\n', length(maturities));
+```
+
+### PCHIP (shape-preserving, no overshoot)
+
+Like spline but avoids the oscillation/overshoot spline can produce —
+better default for "just give me a smooth curve" when oscillation would
+look wrong (e.g. a few widely-spaced tenors).
+
+```matlab
+y_pchip = interp1(maturities, yields, t_fine, 'pchip');
+```
+
+---
+
 ## 1. SOFR Swap Curve Bootstrap (no toolbox)
 
 Bootstrap a zero curve from deposit rates (short end) + swap rates (long end):

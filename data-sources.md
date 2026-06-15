@@ -1,186 +1,126 @@
 # Market Data Sources Reference
 
-## Supported Markets & Sources
+This file has three tiers. Check them in order before falling back to a
+fresh web search.
+
+- **Tier 1 — Curated & wired in.** Fully implemented in `fetch_market_data`.
+  Just call the tool with the market code.
+- **Tier 2 — Known leads.** A specific URL/endpoint that has worked before
+  or looks promising, but is NOT wired into `fetch_market_data`. Try
+  `fetch_url` on these directly — usually faster than a fresh search.
+- **Tier 3 — Unknown.** Not documented here. Follow the full decision tree:
+  web search for the official source → `fetch_url` → parse.
+
+**When you successfully find a working source for a Tier 2/3 market,
+add it here (with the working URL and date format notes) so future
+requests can skip straight to Tier 2.**
+
+---
+
+## Tier 1 — Curated & Wired In
 
 ### US_TREASURY
-- **Source:** US Treasury XML feed (free, no key)
-- **URL:** `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=YYYYMM`
-- **Tenors:** 1M, 2M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y
-- **Freshness:** Updated daily by 6pm ET
-- **Fallback:** FRED series (see below)
+- `fetch_market_data(market="US_TREASURY")`
+- Source: US Treasury XML feed (treasury.gov), free, no key
+- Tenors: 1M, 2M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y
+- Freshness: same day, updated ~6pm ET, no weekend/holiday data
 
-FRED series IDs (backup):
-```
-DGS1MO  → 1-month
-DGS3MO  → 3-month
-DGS6MO  → 6-month
-DGS1    → 1-year
-DGS2    → 2-year
-DGS5    → 5-year
-DGS10   → 10-year
-DGS30   → 30-year
-```
-FRED CSV endpoint: `https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10`
+### JGB
+- `fetch_market_data(market="JGB")`
+- Source: Ministry of Finance Japan CSV (mof.go.jp), free, no key
+- Tenors: 1Y–10Y, 15Y, 20Y, 25Y, 30Y, 40Y
+- Freshness: same day, no weekend/holiday data
 
----
+### EUR_SWAP
+- `fetch_market_data(market="EUR_SWAP")`
+- Source: ECB AAA Euro Area Yield Curve, Svensson model spot rates
+  (data-api.ecb.europa.eu), free, no key
+- Tenors: 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 15Y, 20Y, 30Y
+- Freshness: ~1 business day delay
+- Note: this is AAA government bond spot rates, not interbank swap rates —
+  close proxy but mention this distinction if precision matters
 
-### SOFR_SWAP
-- **Source:** FRED (New York Fed data)
-- **SOFR overnight:** `https://fred.stlouisfed.org/graph/fredgraph.csv?id=SOFR`
-- **Term SOFR rates:** CME Group publishes term SOFR (requires free registration)
-- **Swap rates:** Yieldwatch.io API (free tier)
-- **Tenors:** Overnight, 1M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 30Y
-- **Note:** Full SOFR swap curve (OIS-based) requires bootstrapping from
-  deposit + swap quotes. Use Term SOFR as approximation for short end.
-
-FRED SOFR series:
-```
-SOFR        → overnight SOFR
-SOFRINDEX   → SOFR index
-```
+### ECB_RATE
+- `fetch_market_data(market="ECB_RATE")`
+- Source: ECB Data Portal, deposit facility rate (single value)
+- Freshness: same day, very reliable
 
 ---
 
-### EUR_SWAP (€STR / EURIBOR swaps)
-- **Source:** ECB Data Portal (free, no key)
-- **ECB API base:** `https://data-api.ecb.europa.eu/service/data/`
-- **€STR:** `FM.B.U2.EUR.FR.BB.ESTRVOLW.ST` (overnight)
-- **EUR swap rates:** ECB publishes AAA-rated euro area yield curves
-  - Dataset: `YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_{TENOR}Y`
-  - Tenors: 1Y through 30Y
+## Tier 2 — Known Leads (try fetch_url first)
 
-Yieldwatch.io fallback (Tier 2):
-```
-GET https://yieldwatch.io/api/v1/yields/eur-swap/latest
-```
+### UK_GILT (UK government bonds)
+- **Lead:** Bank of England Interactive Database
+- **URL pattern:**
+  ```
+  https://www.bankofengland.co.uk/boeapps/database/fromshowcolumns.asp?Travel=NIxRSxSUx&FromSeries=1&ToSeries=50&DAT=RNG&FD=1&FM=Jan&FY=2024&TD=31&TM=Dec&TY=2026&VFD=Y&html.x=66&html.y=26&C=BLC&C=BLD&C=BLE&C=BLF&C=BLG&C=BLH&Filter=N
+  ```
+- **Format:** HTML table with date-indexed columns (BLC, BLD, etc. = different gilt series codes)
+- **Status:** untested with fetch_url — series codes (C=BLC etc.) may need
+  remapping to specific tenors. Try fetching and inspect column headers.
+- **Alternative:** UK Debt Management Office (dmo.gov.uk) publishes daily
+  gilt prices/yields as downloadable files — search "DMO gilt market
+  prices download"
 
-ECB Policy rates via FRED:
-```
-ECBDFR   → ECB deposit facility rate
-ECBMRRFR → ECB main refinancing rate
-```
+### AUSTRALIA (Australian Government Bonds / ACGBs)
+- **Lead:** Reserve Bank of Australia statistical tables
+- **Starting point:** `https://www.rba.gov.au/statistics/tables/` — look for
+  "Capital Market Yields - Government Bonds" (table F2 or similar)
+- **Format:** typically XLS/CSV download, daily yields for 2Y/3Y/5Y/10Y ACGBs
+- **Status:** untested — find current table number via web search
+  ("RBA F2 capital market yields government bonds csv")
 
----
+### CANADA
+- **Lead:** Bank of Canada Valet API (machine-readable, free, no key)
+- **Starting point:** `https://www.bankofcanada.ca/valet/docs` — series like
+  `BD.CDN.2YR.DQ.YLD`, `BD.CDN.10YR.DQ.YLD`
+- **Format:** JSON or CSV via Valet API, e.g.
+  `https://www.bankofcanada.ca/valet/observations/BD.CDN.10YR.DQ.YLD/json?recent=1`
+- **Status:** untested but Valet API is well-documented and historically
+  reliable — good first try
 
-### JGB (Japanese Government Bonds)
-- **Source:** Ministry of Finance Japan (free, no key)
-- **URL:** `https://www.mof.go.jp/english/jgbs/reference/interest_rate/`
-- **CSV download:** `https://www.mof.go.jp/english/jgbs/reference/interest_rate/historical/jgbcme_all.csv`
-- **Tenors:** 1Y, 2Y, 3Y, 4Y, 5Y, 6Y, 7Y, 8Y, 9Y, 10Y, 15Y, 20Y, 25Y, 30Y, 40Y
-- **Freshness:** Updated daily
+### SOUTH KOREA
+- **Lead:** Bank of Korea ECOS API
+- **Starting point:** `https://ecos.bok.or.kr/api/` — requires free API key
+  registration (not "no key" like others)
+- **Status:** untested, lower priority due to key requirement
 
-FRED backup series:
-```
-IRLTLT01JPM156N → Japan 10Y government bond (monthly, OECD)
-```
-Note: FRED only has Japan 10Y monthly. For full curve use MoF directly.
+### SWITZERLAND
+- **Lead:** SNB data portal (data.snb.ch)
+- **Starting point:** search "SNB government bond yields data portal csv"
+- **Status:** untested
 
----
-
-### UK_GILT
-- **Source:** Bank of England (free, no key)
-- **URL:** `https://www.bankofengland.co.uk/boeapps/database/fromshowcolumns.asp?Travel=NIxRSxSUx&FromSeries=1&ToSeries=50&DAT=RNG&FD=1&FM=Jan&FY=2024&TD=31&TM=Dec&TY=2026&VFD=Y&html.x=66&html.y=26&C=BLC&C=BLD&C=BLE&C=BLF&C=BLG&C=BLH&Filter=N`
-- **FRED backup series:**
-```
-IRLTLT01GBM156N → UK 10Y gilt (monthly)
-GBGBOND10Y      → 10Y gilt daily (if available)
-```
-
----
-
-### ECB_RATE (Policy rates only)
-- **FRED series:**
-```
-ECBDFR   → Deposit facility rate (overnight, daily)
-ECBMRRFR → Main refinancing rate (daily)
-```
-- Use for: rate hike/cut scenario analysis, spread to swap curve
+### CHINA
+- **Lead:** ChinaBond (chinabond.com.cn) publishes official yield curves
+  but site is primarily Chinese-language and may need translation of
+  query parameters
+- **Status:** untested, likely needs web search per request
 
 ---
 
-## How to Fetch in Python (MCP server)
+## Tier 3 — Unknown Markets
 
-```python
-import urllib.request
-import csv
-import json
-from datetime import datetime, timedelta
+For anything not listed above (India, Brazil, Mexico, Nordic countries,
+emerging markets, etc.):
 
-def fetch_us_treasury(date='latest'):
-    """Fetch from Treasury XML, fall back to FRED CSV"""
-    if date == 'latest':
-        # Try last 5 business days
-        for days_back in range(1, 6):
-            d = datetime.now() - timedelta(days=days_back)
-            ym = d.strftime('%Y%m')
-            url = (f"https://home.treasury.gov/resource-center/data-chart-center/"
-                   f"interest-rates/pages/xml?data=daily_treasury_yield_curve"
-                   f"&field_tdr_date_value={ym}")
-            try:
-                with urllib.request.urlopen(url, timeout=10) as r:
-                    content = r.read().decode()
-                    # Parse XML for latest entry
-                    # Returns dict of {tenor: yield}
-                    return parse_treasury_xml(content)
-            except:
-                continue
-    return None
-
-def fetch_fred_series(series_id):
-    """Fetch single FRED series, no API key needed for CSV"""
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-    with urllib.request.urlopen(url, timeout=10) as r:
-        lines = r.read().decode().splitlines()
-    reader = csv.DictReader(lines)
-    rows = list(reader)
-    # Return most recent non-empty value
-    for row in reversed(rows):
-        if row['VALUE'] != '.':
-            return {'date': row['DATE'], 'value': float(row['VALUE'])}
-    return None
-
-def fetch_sofr_curve():
-    """Build SOFR curve from FRED overnight + term structure approximation"""
-    sofr_on = fetch_fred_series('SOFR')
-    # Fetch Treasury curve as base, apply SOFR-Treasury spread approximation
-    # For production: use CME Term SOFR API
-    treasury = fetch_us_treasury()
-    return {'overnight': sofr_on, 'curve': treasury, 'note': 'approx from Treasury'}
-
-def fetch_jgb():
-    """Fetch JGB curve from MoF Japan"""
-    url = "https://www.mof.go.jp/english/jgbs/reference/interest_rate/historical/jgbcme_all.csv"
-    with urllib.request.urlopen(url, timeout=15) as r:
-        content = r.read().decode('utf-8', errors='replace')
-    # Parse CSV, return latest row
-    lines = content.splitlines()
-    # MoF format: Date, 1Y, 2Y, 3Y, 4Y, 5Y, 6Y, 7Y, 8Y, 9Y, 10Y, 15Y, 20Y, 25Y, 30Y, 40Y
-    reader = csv.reader(lines)
-    rows = [r for r in reader if len(r) > 10 and r[0] != 'Date']
-    latest = rows[-1]
-    tenors = [1,2,3,4,5,6,7,8,9,10,15,20,25,30,40]
-    yields = [float(v) if v.strip() else None for v in latest[1:len(tenors)+1]]
-    return {'date': latest[0], 'maturities': tenors, 'yields': yields}
-```
+1. Web search: "<country> government bond yield curve official data CSV"
+   or "<country central bank> bond yields API"
+2. Prefer: central bank statistical databases > debt management office >
+   finance ministry > stock exchange
+3. Avoid: news aggregators, Investing.com, TradingEconomics (these are
+   secondary sources, fine for a sanity check but not as the primary
+   number if an official source exists)
+4. Once found and working, document it here under Tier 2 for next time
 
 ---
 
-## Data Freshness & Limitations
+## General Notes
 
-| Market | Delay | Gaps | Notes |
-|--------|-------|------|-------|
-| US Treasury | Same day (6pm ET) | Weekends/holidays | Most reliable free source |
-| SOFR overnight | 1 business day | Weekends | Via FRED |
-| SOFR swap curve | Approximation only | — | Full curve needs CME API |
-| EUR swap | 1 business day | Weekends | ECB AAA curve, not interbank |
-| JGB | Same day | Weekends/holidays | MoF direct, very reliable |
-| UK Gilt | 1 business day | Weekends | BoE API |
-| ECB policy rate | Same day | — | Via FRED, very reliable |
-
-## For Production / Swaptions
-
-Tier 2 upgrades to consider:
-- **yieldwatch.io** — clean REST API, US Treasury + some EUR data, free tier
-- **EODHD** — broader coverage including real yields, free tier available
-- **CME Group API** — Term SOFR rates (free with registration)
-- For swaption vol surfaces: no free source exists; need Bloomberg or Refinitiv
+- Government bond yields are usually more accessible (official, free) than
+  swap rates — for swaps/swaptions in non-USD/EUR markets, expect to need
+  Bloomberg/Refinitiv or accept government bond yields as a proxy
+- Always state the source name, URL, and as-of date when presenting fetched
+  data to the user
+- If a Tier 2 lead stops working (URL changed, format changed), note the
+  failure and fall back to Tier 3 for that request — then update this file
+  with the corrected lead
