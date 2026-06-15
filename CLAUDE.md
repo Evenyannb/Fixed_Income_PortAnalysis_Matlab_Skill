@@ -9,7 +9,7 @@ description: >
   rates, Nelson-Siegel fitting, PCA on rates, or cross-market comparison.
 ---
 
-# MATLAB MCP — Rates & Yield Curve Modeling Skill
+#  Rates & Yield Curve Modeling Skill
 
 ## STRICT RULES
 
