@@ -1,0 +1,5 @@
+bond_id,market,maturity_yr,coupon_pct,face_notional,side,description
+JGB_30Y_2056,JGB,30.0,2.1,500000000,short,30Y JGB duration hedge
+EUR_5Y_2031,EUR_SWAP,5.0,2.9,150000000,long,5Y EUR govvie long
+UST_10Y_2036,US_TREASURY,10.0,4.25,300000000.0,long,10Y UST long
+JGB_10Y_2036,JGB,10.0,0.8,1000000000.0,short,10Y JGB benchmark short
