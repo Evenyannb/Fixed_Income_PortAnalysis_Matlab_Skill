@@ -25,6 +25,49 @@ requests can skip straight to Tier 2.**
 - Tenors: 1M, 2M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y
 - Freshness: same day, updated ~6pm ET, no weekend/holiday data
 
+**What these yields are:**
+US Treasury yields are **sovereign government bond par yields** — the rate
+the US government pays to borrow. They are NOT SOFR and NOT LIBOR.
+
+| Rate | What it is | Use for |
+|------|-----------|---------|
+| US Treasury yield | US govt borrowing rate, risk-free, sovereign | Government bond pricing, risk-free base curve |
+| SOFR | Overnight secured interbank rate (replaced LIBOR 2023) | USD swap pricing, floating rate instruments |
+| LIBOR | Was unsecured interbank rate — **defunct as of June 2023** | Legacy contracts only, do not use for new analysis |
+
+**Relationship:** SOFR swap rates ≈ Treasury yield + swap spread (typically
++10 to +30 bps depending on tenor and market conditions). The swap spread
+reflects credit, liquidity, and supply/demand differences between govvies
+and the interbank market.
+
+**Implication for this tool:** `US_TREASURY` data is correct for a
+government bond book. If the PM trades USD interest rate swaps or
+floating-rate instruments, a separate SOFR swap curve is needed —
+see the SOFR section below.
+
+### SOFR (USD Swap Curve) — NOT currently curated
+**SOFR is not the same as US Treasury yields.** It is the Secured Overnight
+Financing Rate — the benchmark rate for USD interest rate swaps since LIBOR
+was discontinued in June 2023.
+
+**What you need for a full SOFR swap curve:**
+- **Short end (overnight to 1Y):** CME Term SOFR rates — free with
+  registration at `cmegroup.com/market-data/sofr-benchmark-data.html`
+- **Long end (2Y–30Y):** SOFR OIS swap rates — no free public machine-readable
+  source; requires Bloomberg, Refinitiv, or a broker feed
+- **Bootstrap:** deposit rates (short end) + swap rates (long end) →
+  zero/discount curve (see `modeling-patterns.md` section 1)
+
+**Practical options:**
+1. Use US Treasury curve as a **proxy** — directionally correct, understates
+   rates by the swap spread (typically 10–30bps). Flag this to the PM.
+2. Register for CME Term SOFR (free) for short-end rates
+3. Manually input long-end swap rates from a Bloomberg/Reuters screen
+
+**Note for EUR:** The equivalent is €STR (Euro Short-Term Rate), which
+replaced EURIBOR as the RFR. The ECB AAA curve fetched by `EUR_SWAP` is
+a government bond curve — not a swap curve. The same distinction applies.
+
 ### JGB
 - `fetch_market_data(market="JGB")`
 - Source: Ministry of Finance Japan CSV (mof.go.jp), free, no key
@@ -37,8 +80,22 @@ requests can skip straight to Tier 2.**
   (data-api.ecb.europa.eu), free, no key
 - Tenors: 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 15Y, 20Y, 30Y
 - Freshness: ~1 business day delay
-- Note: this is AAA government bond spot rates, not interbank swap rates —
-  close proxy but mention this distinction if precision matters
+
+**Important — this is NOT an interbank swap curve:**
+The ECB AAA curve is the yield on AAA-rated euro area government bonds
+(Germany, Netherlands, Finland etc.) — it is a **sovereign bond curve**,
+not a €STR/EURIBOR swap curve.
+
+| Rate | What it is |
+|------|-----------|
+| ECB AAA curve (what we fetch) | AAA euro govt bond yields — sovereign, risk-free proxy |
+| €STR swap curve | Euro overnight index swap rates — interbank, replaced EURIBOR |
+| EURIBOR | Term interbank rate — still exists but no longer the RFR benchmark |
+
+**For EUR swap pricing:** the €STR OIS curve is needed, which has no
+free machine-readable public source. Use the ECB AAA curve as a proxy
+for government bond analysis; flag the distinction to the PM if they
+are pricing swaps against this curve.
 
 ### ECB_RATE
 - `fetch_market_data(market="ECB_RATE")`
