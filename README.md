@@ -179,6 +179,34 @@ fetches raw data directly, and continues with the same workflow.
 See `references/data-sources.md` for known leads on UK, Australia,
 Canada, South Korea, Switzerland, and China.
 
+### Important — Government Bonds vs Swap Rates vs LIBOR
+
+This skill fetches **sovereign government bond yields** — not swap rates,
+not LIBOR, not SOFR. These are meaningfully different:
+
+| Rate | What it is | Status |
+|------|-----------|--------|
+| US Treasury yield | US govt borrowing rate — risk-free, sovereign | ✅ What this skill fetches |
+| JGB yield | Japanese govt borrowing rate — risk-free, sovereign | ✅ What this skill fetches |
+| ECB AAA curve | AAA euro govt bond yields — sovereign | ✅ What this skill fetches |
+| SOFR | USD secured overnight interbank rate — replaced LIBOR | ⚠️ Not fetched — no free full curve source |
+| €STR | EUR overnight interbank rate — replaced EURIBOR | ⚠️ Not fetched — no free full curve source |
+| LIBOR | Was unsecured interbank rate | ❌ Defunct since June 2023 — do not use |
+
+**Practical implication:**
+
+- If the PM runs a **government bond book** (Treasuries, JGBs, Gilts,
+  Bunds) — this skill uses the right curves directly.
+- If the PM trades **USD/EUR interest rate swaps** — the government bond
+  curve is a directional proxy, but understates rates by the swap spread
+  (typically 10–30 bps). A SOFR or €STR swap curve is needed for
+  precise swap pricing, but has no free machine-readable public source.
+- **LIBOR is dead.** Any reference to LIBOR in positions or analysis
+  should be flagged as a legacy instrument requiring transition to SOFR/€STR.
+
+See `references/data-sources.md` for details on what each curve is,
+how they relate, and options for obtaining swap curve data.
+
 ---
 
 ## Reference Implementation (Python + MATLAB)
