@@ -213,6 +213,27 @@ but note: "Prices are approximate — accrued interest not included."
 
 ---
 
+## Rate Type Awareness
+
+Always be clear about what curve is being used. These are not interchangeable:
+
+- **US Treasury yields** — sovereign government bond yields, risk-free.
+  This is what `fetch_market_data(US_TREASURY)` returns. Correct for
+  government bond analysis. NOT SOFR, NOT LIBOR.
+- **SOFR** — secured overnight interbank rate, the USD RFR since LIBOR
+  ended in June 2023. Used for swap pricing. No free full curve source.
+- **ECB AAA curve** — AAA euro govt bond yields. NOT the €STR swap curve.
+- **LIBOR** — defunct since June 2023. If a PM mentions LIBOR, flag it:
+  "LIBOR was discontinued in June 2023 — did you mean SOFR (USD) or
+  €STR (EUR)?"
+
+If the PM asks about swap pricing or SOFR curves specifically:
+- Acknowledge the government bond curve is a directional proxy only
+- Explain the swap spread (typically 10–30bps above Treasuries)
+- Note that a full SOFR swap curve has no free public source and would
+  require CME Term SOFR (short end, free with registration) + a broker
+  feed or Bloomberg for the long end
+
 ## References
 
 For curve fitting models (NS, Svensson, spline), SOFR bootstrap, PCA,
