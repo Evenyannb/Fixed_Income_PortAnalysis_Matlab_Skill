@@ -129,7 +129,13 @@ Keep it under one page. Actionable, not academic.
 
 ### "Add [bond] to my book"
 Confirm the details with the PM first (market, maturity, coupon, notional,
-long/short), then `manage_positions(action="add", ...)`.
+long/short). **Ask for the exact maturity date (YYYY-MM-DD), not just years
+to maturity** — years-from-today alone isn't enough to build an exact
+coupon schedule for full pricing (clean/dirty/accrued), only for the
+approximate DV01 used in the morning check. If the PM doesn't have the
+date handy, save without it and note that a full-pricing request for that
+bond will need the date at that point rather than have one assumed.
+Then `manage_positions(action="add", ..., maturity_date=..., maturity_yr=...)`.
 Always confirm: "Added — your book now has N positions across X markets."
 
 ### "Show me my book"
@@ -195,7 +201,8 @@ unless they explicitly ask "show me the model parameters."
 - Always compute **dirty price** (clean + accrued) for P&L
 - Use **clean price** for relative value vs curve comparisons
 - Day count by market: UST/UK Gilt = Actual/Actual (Basis 0),
-  JGB = Actual/365 (Basis 2), EUR govvie annual = Actual/Actual (Basis 0)
+  JGB = Actual/365 (**Basis 3** — not Basis 2, which is Actual/360),
+  EUR govvie annual = Actual/Actual (Basis 0)
 
 When the PM asks "what's my P&L" or "what's the price" → use full pricing.
 When aggregating DV01 across the book for a morning check → approximate is fine,
