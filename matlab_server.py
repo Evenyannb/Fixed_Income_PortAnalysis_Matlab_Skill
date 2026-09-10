@@ -83,10 +83,22 @@ def _fetch_treasury_csv():
         if len(lines) < 2:
             return None
         reader = list(csv.DictReader(lines))
-        # Find latest row with actual data
-        for row in reversed(reader):
+
+        # IMPORTANT: do NOT assume file row order (Treasury's CSV is
+        # newest-first, not oldest-first — a prior version of this code
+        # used reversed(reader) + "take first match", which silently
+        # returned the OLDEST valid row of the year, e.g. Jan 2nd).
+        # Instead, parse every valid row and explicitly pick the one
+        # with the maximum date. Order-independent, can't regress.
+        best_date = None
+        best_result = None
+        for row in reader:
             date_str = row.get('Date', '').strip()
             if not date_str:
+                continue
+            try:
+                dt = datetime.strptime(date_str, '%m/%d/%Y')
+            except Exception:
                 continue
             maturities, yields = [], []
             for col, mat in sorted(col_map.items(), key=lambda x: x[1]):
@@ -98,16 +110,17 @@ def _fetch_treasury_csv():
                     except ValueError:
                         pass
             if len(maturities) >= 6:  # need at least 6 tenors
-                # Normalize date format
-                try:
-                    dt = datetime.strptime(date_str, '%m/%d/%Y')
-                    date_str = dt.strftime('%Y-%m-%d')
-                except Exception:
-                    pass
-                return {'market': 'US_TREASURY', 'date': date_str,
+                if best_date is None or dt > best_date:
+                    best_date = dt
+                    best_result = {
+                        'market': 'US_TREASURY',
+                        'date': dt.strftime('%Y-%m-%d'),
                         'maturities': maturities, 'yields': yields,
                         'unit': 'percent',
-                        'source': 'US Treasury CSV (treasury.gov)'}
+                        'source': 'US Treasury CSV (treasury.gov)'
+                    }
+        if best_result:
+            return best_result
     except Exception as e:
         sys.stderr.write(f"Treasury CSV error: {e}\n")
     return None
@@ -195,8 +208,18 @@ def fetch_jgb():
         tenor_map = {'1Y':1,'2Y':2,'3Y':3,'4Y':4,'5Y':5,'6Y':6,'7Y':7,
                      '8Y':8,'9Y':9,'10Y':10,'15Y':15,'20Y':20,'25Y':25,
                      '30Y':30,'40Y':40}
-        for row in reversed(reader[1:]):
+
+        # Same fix as Treasury: don't assume file row order, explicitly
+        # find the row with the maximum date. MoF's date format is
+        # 'YYYY/M/D' (e.g. '2026/5/29').
+        best_date = None
+        best_result = None
+        for row in reader[1:]:
             if len(row) < 5 or not row[0].strip():
+                continue
+            try:
+                dt = datetime.strptime(row[0].strip(), '%Y/%m/%d')
+            except Exception:
                 continue
             maturities, yields = [], []
             for j, h in enumerate(headers[1:], 1):
@@ -208,9 +231,15 @@ def fetch_jgb():
                     except ValueError:
                         pass
             if maturities:
-                return {'market': 'JGB', 'date': row[0].strip(),
+                if best_date is None or dt > best_date:
+                    best_date = dt
+                    best_result = {
+                        'market': 'JGB', 'date': dt.strftime('%Y-%m-%d'),
                         'maturities': maturities, 'yields': yields,
-                        'unit': 'percent', 'source': 'MoF Japan (mof.go.jp)'}
+                        'unit': 'percent', 'source': 'MoF Japan (mof.go.jp)'
+                    }
+        if best_result:
+            return best_result
     except Exception as e:
         sys.stderr.write(f"JGB fetch failed: {e}\n")
     return {'error': 'Could not fetch JGB data'}
@@ -227,10 +256,24 @@ def fetch_eur_swap():
             r = requests.get(url, headers=HEADERS, timeout=15)
             r.raise_for_status()
             reader = list(csv.DictReader(r.text.splitlines()))
-            if reader:
-                row = reader[-1]
+            # Pick the row with the max TIME_PERIOD rather than assuming
+            # reader[-1] is latest (same class of bug as Treasury/JGB).
+            best_row = None
+            best_date_str = None
+            for row in reader:
+                date_str = row.get('TIME_PERIOD', '').strip()
                 val = row.get('OBS_VALUE', '').strip()
-                date = row.get('TIME_PERIOD', '').strip()
+                if date_str and val:
+                    try:
+                        float(val)
+                    except ValueError:
+                        continue
+                    if best_date_str is None or date_str > best_date_str:
+                        best_date_str = date_str
+                        best_row = row
+            if best_row:
+                val = best_row.get('OBS_VALUE', '').strip()
+                date = best_date_str
                 if val and float(val) > 0:
                     maturities.append(t)
                     yields.append(round(float(val), 6))
@@ -245,6 +288,8 @@ def fetch_eur_swap():
 
 
 def fetch_ecb_rate():
+    # Note: lastNObservations=1 means the API itself returns exactly one
+    # row, so reader[-1] is safe here (no row-order assumption risk).
     url = ("https://data-api.ecb.europa.eu/service/data/"
            "FM/B.U2.EUR.4F.KR.DFR.LEV?format=csvdata&lastNObservations=1")
     try:
@@ -350,8 +395,8 @@ def diff_snapshots(market: str, date1: str, date2: str) -> dict:
 
 # ── Positions helpers ────────────────────────────────────────────────────────
 
-POSITIONS_HEADER = ['bond_id','market','maturity_yr','coupon_pct',
-                    'face_notional','side','description']
+POSITIONS_HEADER = ['bond_id','market','maturity_date','maturity_yr',
+                    'coupon_pct','face_notional','side','description']
 
 def load_positions() -> list:
     """Load positions from CSV. Returns list of dicts."""
@@ -371,14 +416,24 @@ def save_positions(positions: list) -> str:
 
 
 def add_position(bond_id, market, maturity_yr, coupon_pct,
-                 face_notional, side, description='') -> dict:
-    """Add or update a position in the positions file."""
+                 face_notional, side, description='', maturity_date='') -> dict:
+    """Add or update a position in the positions file.
+
+    maturity_date (YYYY-MM-DD) is the authoritative field for full pricing
+    (coupon schedule, accrued interest, settlement). maturity_yr is kept
+    as an approximate/derived field for quick DV01 aggregation and morning
+    check — if maturity_date is not supplied, full-pricing requests must
+    ask the user for it rather than guessing a coupon schedule from
+    maturity_yr alone (years-from-today is not enough to know exact
+    coupon dates).
+    """
     positions = load_positions()
     # Remove existing entry with same bond_id
     positions = [p for p in positions if p['bond_id'] != bond_id]
     positions.append({
         'bond_id': bond_id,
         'market': market.upper(),
+        'maturity_date': maturity_date,  # '' if not supplied — ask, don't guess
         'maturity_yr': float(maturity_yr),
         'coupon_pct': float(coupon_pct),
         'face_notional': float(face_notional),
@@ -387,7 +442,9 @@ def add_position(bond_id, market, maturity_yr, coupon_pct,
     })
     save_positions(positions)
     return {'status': 'saved', 'bond_id': bond_id,
-            'file': str(POSITIONS_FILE), 'total_positions': len(positions)}
+            'file': str(POSITIONS_FILE), 'total_positions': len(positions),
+            'note': ('maturity_date not set — full pricing requests for '
+                     'this bond will need to ask for it') if not maturity_date else None}
 
 
 def remove_position(bond_id: str) -> dict:
@@ -532,7 +589,12 @@ async def list_tools():
                 "Read, add, update or remove bond positions in the portfolio. "
                 "action='list' → returns all positions. "
                 "action='add' → add/update a position (requires bond_id, market, "
-                "maturity_yr, coupon_pct, face_notional, side). "
+                "maturity_yr, coupon_pct, face_notional, side). ALSO ask the user "
+                "for maturity_date (YYYY-MM-DD) when adding — maturity_yr alone "
+                "is not enough to build an exact coupon schedule for full pricing "
+                "(clean/dirty/accrued). If the user doesn't have it handy, save "
+                "without it, but note that full-pricing requests for that bond "
+                "will need to ask for the date at that point rather than guess it. "
                 "action='remove' → remove by bond_id. "
                 "Positions are saved to ~/matlab-mcp/positions.csv."
             ),
@@ -543,8 +605,10 @@ async def list_tools():
                                "enum": ["list", "add", "remove"]},
                     "bond_id": {"type": "string"},
                     "market": {"type": "string"},
+                    "maturity_date": {"type": "string",
+                                      "description": "YYYY-MM-DD, exact maturity date — needed for full pricing (accrued/dirty)"},
                     "maturity_yr": {"type": "number",
-                                    "description": "Years to maturity from today"},
+                                    "description": "Years to maturity from today (approximate — used for quick DV01, not full pricing)"},
                     "coupon_pct": {"type": "number",
                                    "description": "Annual coupon rate in percent"},
                     "face_notional": {"type": "number",
@@ -644,7 +708,8 @@ async def call_tool(name: str, arguments: dict):
                     coupon_pct    = arguments["coupon_pct"],
                     face_notional = arguments["face_notional"],
                     side          = arguments["side"],
-                    description   = arguments.get("description", "")
+                    description   = arguments.get("description", ""),
+                    maturity_date = arguments.get("maturity_date", "")
                 )
                 return [types.TextContent(type="text",
                                           text=json.dumps(result, indent=2))]
