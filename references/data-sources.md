@@ -119,13 +119,30 @@ are pricing swaps against this curve.
   gilt prices/yields as downloadable files — search "DMO gilt market
   prices download"
 
-### AUSTRALIA (Australian Government Bonds / ACGBs)
-- **Lead:** Reserve Bank of Australia statistical tables
-- **Starting point:** `https://www.rba.gov.au/statistics/tables/` — look for
-  "Capital Market Yields - Government Bonds" (table F2 or similar)
-- **Format:** typically XLS/CSV download, daily yields for 2Y/3Y/5Y/10Y ACGBs
-- **Status:** untested — find current table number via web search
-  ("RBA F2 capital market yields government bonds csv")
+### AUSTRALIA (Australian Government Bonds / ACGBs) — VERIFIED
+- **Source:** RBA Table F16 — "Indicative Mid Rates of Selected Australian
+  Government Securities"
+- **URL:** `https://www.rba.gov.au/statistics/tables/` → search "F16" or
+  fetch directly — RBA also lists on the AOFM Data Hub
+  (`https://www.aofm.gov.au/data-hub`)
+- **Format:** CSV, individual bond-by-bond mid yields — NOT interpolated
+  tenors. As of Sep 2026: 30 nominal lines from ~0.6y (e.g. Apr-27) out to
+  ~28y (e.g. Jun-54)
+- **Why F16 over F2:** Table F2 ("Capital Market Yields — Government
+  Bonds") only gives 4 interpolated points (2Y/3Y/5Y/10Y). F16 gives the
+  real bond-by-bond curve — 30 individual securities — which is what you
+  want for a proper Nelson-Siegel fit. Prefer F16.
+- **Freshness:** ~2 business day lag (e.g. a file published 4 Sep
+  contained data as of 2 Sep). Expect Australia to run a few sessions
+  behind US/JGB/EUR in any cross-market comparison.
+- **Known data-quality note:** the file can include a very short-dated
+  line (e.g. maturing in under 3 weeks) priced off money-market
+  conventions rather than bond conventions — this typically sits well
+  off the fitted curve and is standard practice to exclude from a
+  Nelson-Siegel fit. Worth a sanity check on the shortest maturity before
+  fitting.
+- **Verified working:** 2026-09-08 — fetched via `fetch_url`, fit
+  Nelson-Siegel successfully (RMSE 2.4bp, R²=0.9921, n=30 bonds)
 
 ### CANADA
 - **Lead:** Bank of Canada Valet API (machine-readable, free, no key)
@@ -181,3 +198,21 @@ emerging markets, etc.):
 - If a Tier 2 lead stops working (URL changed, format changed), note the
   failure and fall back to Tier 3 for that request — then update this file
   with the corrected lead
+
+**MATLAB CSV parsing gotcha — always use `'CollapseDelimiters', false`**
+When parsing a fetched CSV in MATLAB with `strsplit`, the default behavior
+collapses consecutive delimiters (e.g. `,,` from an empty field). For any
+CSV with sparse/empty fields — common in government data tables where not
+every bond has a value in every column — this silently drops the empty
+field and shifts every subsequent value onto the wrong column. The
+failure is silent: it produces a plausible-looking curve with no error,
+just wrong numbers (symptom: RMSE much worse than expected, or the curve
+doing something structurally odd like going negative at long tenors).
+
+Always parse with:
+```matlab
+fields = strsplit(line, ',', 'CollapseDelimiters', false);
+```
+This was first hit on the RBA F16 fetch (2026-09-08) — first attempt gave
+RMSE 92bp and a curve going negative past 15Y before the fix. Apply this
+flag proactively to any new sparse-matrix CSV source, not just RBA.
