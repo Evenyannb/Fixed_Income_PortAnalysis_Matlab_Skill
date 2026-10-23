@@ -7,7 +7,7 @@ run rate shock scenarios, and price bonds — all through natural language.
 
 The skill defines **what the assistant does and how it thinks**. The
 underlying infrastructure (how data is fetched, how models run) is
-implementation-specific — this repo includes a Python + MATLAB reference
+implementation-specific — this repo includes a MCP server + MATLAB reference
 implementation, but the skill itself can be adapted to any platform or
 toolchain.
 
